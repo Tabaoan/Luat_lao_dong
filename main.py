@@ -4,17 +4,26 @@ from pydantic import BaseModel
 import os
 import uvicorn
 from typing import Optional, Any
-# Import thư viện cần thiết cho việc chạy hàm đồng bộ (nếu chatbot là đồng bộ)
-from starlette.concurrency import run_in_threadpool 
+from starlette.concurrency import run_in_threadpool
+import sys
+import logging
 
+# Cấu hình logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Import chatbot module
 try:
     import app
-except ImportError:
+    logger.info("✅ Successfully imported 'app' module")
+except ImportError as e:
     app = None
-    print("WARNING: Could not import 'app' module. Using mock response.")
+    logger.warning(f"⚠️ Could not import 'app' module: {e}")
 
 # --- Khai báo Model cho dữ liệu đầu vào ---
-# FastAPI sử dụng Pydantic để định nghĩa cấu trúc dữ liệu
 class Question(BaseModel):
     """Định nghĩa cấu trúc dữ liệu JSON đầu vào."""
     question: str
@@ -22,7 +31,6 @@ class Question(BaseModel):
 # ---------------------------------------
 # 1️⃣ Khởi tạo FastAPI App + bật CORS
 # ---------------------------------------
-# Khởi tạo ứng dụng FastAPI
 app_fastapi = FastAPI(
     title="Chatbot Luật Lao động API",
     description="API cho mô hình chatbot",
@@ -30,10 +38,8 @@ app_fastapi = FastAPI(
 )
 
 # 🔹 Cấu hình CORS Middleware
-# Cho phép tất cả các domain (origins=["*"]) hoặc domain cụ thể.
 origins = [
-    "*", # Cho phép tất 허domain gọi API này
-    # "https://chatbotlaodong.vn", # Nếu bạn chỉ muốn cho phép domain cụ thể
+    "*",  # Cho phép tất cả domain gọi API này
 ]
 
 app_fastapi.add_middleware(
@@ -45,20 +51,26 @@ app_fastapi.add_middleware(
 )
 
 # ---------------------------------------
-# 2️⃣ Route kiểm tra hoạt động (GET /)
+# 2️⃣ Health Check Route (Quan trọng cho Render)
 # ---------------------------------------
 @app_fastapi.get("/", summary="Kiểm tra trạng thái API")
 async def home():
     """Route kiểm tra xem API có hoạt động không."""
     return {
+        "status": "healthy",
         "message": "✅ Chatbot Luật Lao động API đang hoạt động.",
-        "usage": "Gửi POST tới /chat với JSON { 'question': 'Câu hỏi của bạn' }"
+        "usage": "Gửi POST tới /chat với JSON { 'question': 'Câu hỏi của bạn' }",
+        "chatbot_loaded": hasattr(app, "chatbot") if app else False
     }
+
+@app_fastapi.get("/health", summary="Health check endpoint")
+async def health_check():
+    """Health check endpoint cho Render."""
+    return {"status": "ok"}
 
 # ---------------------------------------
 # 3️⃣ Route chính: /chat (POST)
 # ---------------------------------------
-# Đã đổi từ /predict sang /chat để khớp với client
 @app_fastapi.post("/chat", summary="Dự đoán/Trả lời câu hỏi từ Chatbot")
 async def predict(data: Question):
     """
@@ -67,25 +79,28 @@ async def predict(data: Question):
     question = data.question.strip()
 
     if not question:
-        # FastAPI tự động validate JSON theo Pydantic, nhưng kiểm tra thêm trường hợp rỗng
-        raise HTTPException(status_code=400, detail="Thiếu trường 'question' trong JSON hoặc câu hỏi bị rỗng.")
+        raise HTTPException(
+            status_code=400, 
+            detail="Thiếu trường 'question' trong JSON hoặc câu hỏi bị rỗng."
+        )
 
     try:
         answer = None
         
-        # ✅ Gọi chatbot thực tế nếu có (Giả định app.py có chứa đối tượng chatbot)
-        if hasattr(app, "chatbot"):
-            session = "api_session" # ID session cố định cho API call
+        # ✅ Gọi chatbot thực tế nếu có
+        if app and hasattr(app, "chatbot"):
+            session = "api_session"
             
-            # Kiểm tra xem app.chatbot.invoke có phải là hàm bất đồng bộ (coroutine) không
-            if hasattr(app.chatbot.invoke, '__code__') and app.chatbot.invoke.__code__.co_flags & 0x80:
-                # Nếu là async (bất đồng bộ), dùng await trực tiếp
+            # Kiểm tra xem có phải async function không
+            import inspect
+            if inspect.iscoroutinefunction(app.chatbot.invoke):
+                # Nếu là async, dùng await
                 response = await app.chatbot.invoke(
                     {"message": question},
                     config={"configurable": {"session_id": session}}
                 )
             else:
-                # Nếu là sync (đồng bộ), chạy nó trong thread pool để không chặn server chính
+                # Nếu là sync, chạy trong thread pool
                 response = await run_in_threadpool(
                     app.chatbot.invoke,
                     {"message": question},
@@ -94,33 +109,48 @@ async def predict(data: Question):
             
             # Xử lý kết quả trả về
             if isinstance(response, dict) and 'output' in response:
-                 answer = response['output']
+                answer = response['output']
             elif isinstance(response, str):
-                 answer = response
+                answer = response
             else:
-                 answer = f"Lỗi: Chatbot trả về định dạng không mong muốn: {repr(response)}"
-
-
+                answer = str(response)
         else:
-            # Nếu chưa có chatbot thật hoặc import thất bại, trả về giả lập
-            answer = f"(Chatbot mô phỏng - LỖI BACKEND: Không tìm thấy đối tượng app.chatbot) Bạn hỏi: '{question}'"
+            # Nếu chưa có chatbot thật
+            logger.warning("Chatbot not loaded, using mock response")
+            answer = f"⚠️ Chatbot chưa được load. Bạn hỏi: '{question}'"
 
         return {"answer": answer}
 
     except Exception as e:
-        # Trả về lỗi server 500 nếu có lỗi xảy ra trong quá trình gọi chatbot
-        # Lỗi này RẤT QUAN TRỌNG: nó là lỗi từ logic/kết nối của chatbot
-        print(f"LỖI CHATBOT: {e}")
-        # Ghi log chi tiết (ví dụ: nếu do thiếu API key, lỗi sẽ nằm ở đây)
-        raise HTTPException(status_code=500, detail=f"Lỗi xử lý Chatbot: {str(e)}. Vui lòng kiểm tra log backend của bạn.")
-
+        logger.error(f"❌ Lỗi xử lý chatbot: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Lỗi xử lý Chatbot: {str(e)}"
+        )
 
 # ---------------------------------------
-# 4️⃣ Khởi động server Uvicorn (FastAPI)
+# 4️⃣ Startup Event (Log thông tin)
 # ---------------------------------------
-# KHÔNG CẦN đoạn này khi deploy lên Render/Gunicorn/uvicorn (họ sẽ chạy lệnh: uvicorn main:app_fastapi --host 0.0.0.0 --port $PORT)
-# Tuy nhiên, giữ lại để dễ dàng chạy local
+@app_fastapi.on_event("startup")
+async def startup_event():
+    """Log thông tin khi khởi động."""
+    logger.info("🚀 FastAPI Server Starting...")
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Chatbot module loaded: {app is not None}")
+    if app and hasattr(app, "chatbot"):
+        logger.info("✅ Chatbot object found")
+    else:
+        logger.warning("⚠️ Chatbot object not found")
+
+# ---------------------------------------
+# 5️⃣ Khởi động server (chỉ cho local development)
+# ---------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    # Dùng "0.0.0.0" là tốt nhất cho cả local và deployment (để Render hoạt động)
-    uvicorn.run("main:app_fastapi", host="0.0.0.0", port=port, log_level="info", reload=True)
+    logger.info(f"Starting server on port {port}")
+    uvicorn.run(
+        "main:app_fastapi", 
+        host="0.0.0.0", 
+        port=port, 
+        log_level="info"
+    )
