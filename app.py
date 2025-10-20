@@ -389,6 +389,12 @@ def handle_command(command: str, session: str) -> bool:
     else:
         return True
 
+# ===================== AUTO LOAD WHEN IMPORTED =====================
+# Khi module này được import (ví dụ từ FastAPI), sẽ tự load Pinecone nếu có key
+if __name__ != "__main__":
+    print("📦 Tự động load Pinecone khi import app.py...")
+    load_vectordb()
+
 # ===================== CLI =====================
 if __name__ == "__main__":
     session = "pdf_reader_session"
