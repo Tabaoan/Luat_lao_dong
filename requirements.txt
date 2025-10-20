@@ -1,0 +1,13 @@
+python-dotenv==1.1.1
+chromadb==1.1.0
+langchain==0.3.27
+langchain-core==0.3.78
+langchain-openai==0.3.33
+langchain-community==0.3.29
+langchain-chroma==0.2.6
+pypdf==5.1.0
+Flask==3.1.2
+flask-cors == 6.0.1
+fastapi == 0.118.0
+langchain-pinecone == 0.2.12
+pinecone == 7.3.0
