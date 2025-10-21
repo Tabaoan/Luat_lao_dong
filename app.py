@@ -90,7 +90,7 @@ PDF_READER_SYS = (
     "   ...'\n\n"
 
     "2) Nếu người dùng hỏi chi tiết về một khu/cụm công nghiệp cụ thể (lần đầu tiên), hãy trình bày đầy đủ thông tin (nếu có trong tài liệu), gồm:\n"
-    "   - Tên khu công nghiệp / cụm công nghiệp\n"
+    "   - Tên khu công nghiệp (kcn) / cụm công nghiệp(cnn)\n"
     "   - Địa điểm (tỉnh/thành phố, huyện/thị xã)\n"
     "   - Diện tích (ha hoặc m²)\n"
     "   - Cơ quan quản lý / chủ đầu tư\n"
@@ -255,7 +255,7 @@ def is_detail_query(text: str) -> bool:
     text_lower = text.lower()
     keywords = ["nêu chi tiết", "chi tiết về", "thông tin chi tiết", "cụm công nghiệp", "khu công nghiệp"]
     if any(k in text_lower for k in keywords):
-        if "có bao nhiêu" in text_lower or "thống kê" in text_lower:
+        if "thống kê" in text_lower: #"có bao nhiêu" in text_lower or "thống kê" in text_lower:
             return False
         return True
     return False
