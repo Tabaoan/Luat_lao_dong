@@ -154,7 +154,7 @@ def check_vectordb_exists() -> bool:
                     embedding=emb, 
                     text_key="text"
                 )
-                retriever = vectordb.as_retriever(search_kwargs={"k": 50})
+                retriever = vectordb.as_retriever(search_kwargs={"k": 15})
             return True
             
         return False
@@ -228,7 +228,7 @@ def load_vectordb():
             embedding=emb, 
             text_key="text"
         )
-        retriever = vectordb.as_retriever(search_kwargs={"k": 50})
+        retriever = vectordb.as_retriever(search_kwargs={"k": 15})
         
         return vectordb
         
