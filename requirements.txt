@@ -11,3 +11,7 @@ flask-cors == 6.0.1
 fastapi == 0.118.0
 langchain-pinecone == 0.2.12
 pinecone == 7.3.0
+gspread == 6.2.1
+uvicorn == 0.37.0
+starlette == 0.48.0
+pydantic == 2.11.9

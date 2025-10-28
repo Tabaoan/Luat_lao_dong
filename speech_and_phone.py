@@ -1,28 +1,19 @@
-# =================================================================================
-# ⚙️ HƯỚNG DẪN CẤU HÌNH GOOGLE SHEETS API
-# =================================================================================
-# 1. Kích hoạt API: Truy cập Google Cloud Console, bật "Google Sheets API" và "Google Drive API".
-# 2. Tạo Service Account: Tạo một Service Account và tải xuống file JSON chứa khóa.
-# 3. Chia sẻ Sheet: Chia sẻ Google Sheet mục tiêu (nơi lưu trữ lead) cho địa chỉ email của Service Account (thường có đuôi @gserviceaccount.com).
-# 4. Cập nhật .env:
-#    - GOOGLE_SHEET_ID: Đã được cập nhật trong file .env kèm theo.
-#    - GOOGLE_SERVICE_ACCOUNT_FILE: Đường dẫn đến file JSON Service Account đã tải về (ví dụ: ./service_account.json).
-#
-# 💡 Đảm bảo bạn đã chạy: pip install gspread
-# =================================================================================
-
 # ===================== IMPORTS =====================
 import os, re, io
 from typing import Dict, Any, List
 from pathlib import Path
 import sys 
-
-# ⬅️ THÊM THƯ VIỆN GOOGLE SHEETS
 try:
     import gspread
     import datetime
 except ImportError:
     print("❌ Lỗi: Cần cài đặt thư viện 'gspread' (pip install gspread).")
+    sys.exit(1)
+try:
+    import openai
+    import speech_recognition as sr
+except ImportError:
+    print("❌ Lỗi: Cần cài đặt thư viện 'openai' và 'speechrecognition' (pip install openai speechrecognition pyaudio).")
     sys.exit(1)
 
 from dotenv import load_dotenv
@@ -38,19 +29,17 @@ from pinecone import Pinecone as PineconeClient
 from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, AIMessage 
 
 
-# ===================== ENV =====================
+# ===================== ENV & CLIENT INIT =====================
 OPENAI__API_KEY = os.getenv("OPENAI__API_KEY")
 OPENAI__EMBEDDING_MODEL = os.getenv("OPENAI__EMBEDDING_MODEL")
 OPENAI__MODEL_NAME = os.getenv("OPENAI__MODEL_NAME")
 OPENAI__TEMPERATURE = os.getenv("OPENAI__TEMPERATURE")
 
-# ⬅️ THÊM BIẾN MÔI TRƯỜNG PINECONE
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 EMBEDDING_DIM = 3072 
 
-# ⬅️ THÊM BIẾN MÔI TRƯỜNG GOOGLE SHEET
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE") 
 
@@ -72,6 +61,64 @@ emb = OpenAIEmbeddings(api_key=OPENAI__API_KEY, model=OPENAI__EMBEDDING_MODEL)
 
 vectordb = None
 retriever = None
+
+# ===================== OPENAI CLIENT & SPEECH-TO-TEXT =====================
+# Sử dụng biến OPENAI__API_KEY đã load sẵn
+api_key = OPENAI__API_KEY
+
+try:
+    # Khởi tạo đối tượng Client (Bắt buộc cho openai >= 1.0.0)
+    client = openai.OpenAI(api_key=api_key)
+except Exception as e:
+    print(f"Lỗi: Không thể khởi tạo OpenAI Client. Đảm bảo API Key đã được thiết lập. Chi tiết: {e}")
+    client = None
+
+def record_and_transcribe():
+    """Ghi âm từ micro và chuyển thành văn bản bằng OpenAI Whisper."""
+    # Kiểm tra client
+    if client is None:
+        print("❌ Lỗi: OpenAI Client chưa được khởi tạo thành công.")
+        return None
+
+    r = sr.Recognizer()
+    # Tên file tạm thời
+    temp_filename = "temp_audio.wav"
+
+    with sr.Microphone() as source:
+        print("🎤 Hãy nói gì đó (giữ im lặng 1-2 giây khi nói xong)...")
+        # Điều chỉnh năng lượng ngưỡng để loại bỏ tiếng ồn môi trường
+        try:
+            r.adjust_for_ambient_noise(source, duration=0.5)
+            audio = r.listen(source)
+            print("⏳ Đang xử lý âm thanh...")
+        except Exception as e:
+            print(f"❌ Lỗi: Không thể truy cập micro hoặc nhận dạng. Vui lòng kiểm tra lại thiết bị micro và cài đặt PyAudio. Chi tiết: {e}")
+            return None
+
+    try:
+        # Lưu âm thanh tạm thời
+        with open(temp_filename, "wb") as f:
+            f.write(audio.get_wav_data())
+
+        with open(temp_filename, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create( 
+                model="whisper-1",
+                file=audio_file,
+                language="vi"
+            )
+
+        print("🗒️ Kết quả nhận dạng:")
+        print(transcript.text)
+        return transcript.text
+
+    except Exception as e:
+        # Lỗi API hoặc lỗi file
+        print(f"❌ Lỗi trong quá trình chuyển giọng nói (API hoặc file): {e}")
+        return None
+    finally:
+        # Dọn dẹp: Xóa file tạm thời
+        if os.path.exists(temp_filename):
+            os.remove(temp_filename)
 
 # ===================== NEW CONSTANTS FOR DATA COLLECTION =====================
 CONTACT_TRIGGER_RESPONSE = 'Anh/chị vui lòng để lại tên và số điện thoại, chuyên gia của IIP sẽ liên hệ và giải đáp các yêu cầu của anh/chị ạ.'
@@ -179,7 +226,7 @@ def save_contact_info(original_question: str, phone_number: str, name: str = "")
     global GOOGLE_SHEET_ID
 
     print("\n" + "=" * 80)
-    #print("💾 ĐANG LƯU THÔNG TIN LIÊN HỆ VÀO GOOGLE SHEET...")
+    print("💾 ĐANG LƯU THÔNG TIN LIÊN HỆ VÀO GOOGLE SHEET...")
     
     gc = authenticate_google_sheet()
     if gc is None:
@@ -196,7 +243,8 @@ def save_contact_info(original_question: str, phone_number: str, name: str = "")
         # 1. Mở Sheet bằng ID
         sh = gc.open_by_key(GOOGLE_SHEET_ID)
         
-
+        # 2. Chọn sheet đầu tiên (worksheet, thường là 'Sheet1')
+        # Tùy chọn: Thay sh.sheet1 bằng sh.worksheet("Tên Sheet Của Bạn")
         worksheet = sh.sheet1 
         
         # 3. Dữ liệu cần ghi
@@ -206,7 +254,7 @@ def save_contact_info(original_question: str, phone_number: str, name: str = "")
             original_question,
             phone_number,
             name if name else "",
-            timestamp 
+            timestamp # Thêm cột thời gian để dễ quản lý
         ]
         
         # 4. Ghi dữ liệu vào cuối sheet
@@ -225,7 +273,7 @@ def save_contact_info(original_question: str, phone_number: str, name: str = "")
             # Bỏ qua lỗi kiểm tra header
             pass
         
-        #print(f"✅ Đã ghi nhận thông tin vào Google Sheet (ID: {GOOGLE_SHEET_ID}).")
+        print(f"✅ Đã ghi nhận thông tin vào Google Sheet (ID: {GOOGLE_SHEET_ID}).")
         print(f"1. Câu hỏi gốc: {original_question}")
         print(f"2. Số điện thoại: {phone_number}")
         print(f"3. Tên: {name if name else 'Không cung cấp'}")
@@ -474,6 +522,7 @@ def print_help():
     print(" - clear        : Xóa lịch sử hội thoại")
     print(" - status       : Kiểm tra trạng thái Pinecone Index")
     print(" - help         : Hiển thị hướng dẫn này")
+    print(" - voice / v    : **Nhập câu hỏi bằng giọng nói** 🎙️")
     print("="*60 + "\n")
 
 def handle_command(command: str, session: str) -> bool:
@@ -493,7 +542,7 @@ def handle_command(command: str, session: str) -> bool:
     elif cmd == "status":
         stats = get_vectordb_stats()
         print("\n" + "="*60)
-        #print("📊 TRẠNG THÁI PINECONE INDEX (CHẾ ĐỘ CHỈ ĐỌC)")
+        print("📊 TRẠNG THÁI PINECONE INDEX (CHẾ ĐỘ CHỈ ĐỌC)")
         print("="*60)
         if stats["exists"]:
             print(f"✅ Trạng thái: Sẵn sàng")
@@ -515,7 +564,7 @@ def handle_command(command: str, session: str) -> bool:
 
 # ===================== AUTO LOAD WHEN IMPORTED =====================
 if __name__ != "__main__":
-    #print("📦 Tự động load Pinecone khi import app.py...")
+    print("📦 Tự động load Pinecone khi import app.py...")
     load_vectordb()
 
 # ===================== CLI =====================
@@ -529,11 +578,11 @@ if __name__ == "__main__":
     # Kiểm tra môi trường
     if not all([OPENAI__API_KEY, PINECONE_API_KEY, PINECONE_INDEX_NAME, GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_FILE]):
         print("❌ LỖI CẤU HÌNH: Thiếu các biến môi trường cần thiết.")
-        print("Hãy kiểm tra: OPENAI, PINECONE, GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_FILE.")
+        print("Hãy kiểm tra: OPENAI__API_KEY, PINECONE_API_KEY, GOOGLE_SHEET_ID, GOOGLE_SERVICE_ACCOUNT_FILE.")
         exit(1)
 
     print("\n" + "="*80)
-    print("🤖 CHATBOT PHÁP LÝ & KCN/CCN")
+    print("🤖 CHATBOT PHÁP LÝ & KCN/CCN (PINECONE - CÓ THU THẬP LEAD VÀO GOOGLE SHEET)")
     print("="*80)
     print(f"☁️ Pinecone Index: {PINECONE_INDEX_NAME}")
     print(f"📄 Google Sheet ID: {GOOGLE_SHEET_ID}")
@@ -583,8 +632,8 @@ if __name__ == "__main__":
                 # Xóa câu hỏi gốc và phản hồi bot khỏi lịch sử để bot không bị lặp
                 history = get_history(session).messages
                 if len(history) >= 2:
-                    history.pop() 
-                    history.pop() 
+                    history.pop() # Xóa AIMessage (Phản hồi 'CONTACT_TRIGGER_RESPONSE')
+                    history.pop() # Xóa HumanMessage (Câu hỏi gây trigger)
                 
                 print("-" * 80)
                 print("💬 Tiếp tục cuộc trò chuyện thường (hoặc gõ 'exit' để thoát).")
@@ -592,20 +641,38 @@ if __name__ == "__main__":
 
 
             # --- Xử lý Chatbot thông thường (Bước 1) ---
-            message = input("👤 Bạn: ").strip()
-            
+            message = input("👤 Bạn (gõ 'voice' hoặc 'v' để nói): ").strip() 
+
             if not message:
                 continue
             
-            # Xử lý lệnh
-            if not handle_command(message, session):
-                break
+            # --- XỬ LÝ LỆNH VOICE ---
+            if message.lower() in ["voice", "v"]:
+                print("\n" + "="*80)
+                print("🎙️ CHẾ ĐỘ NHẬP GIỌNG NÓI ĐÃ KÍCH HOẠT")
+                print("="*80)
+                voice_text = record_and_transcribe()
+                print("="*80 + "\n")
+                
+                if voice_text:
+                    message = voice_text # Gán kết quả giọng nói vào message
+                    print(f"👤 Bạn (từ giọng nói): {message}")
+                else:
+                    # Nếu không nhận dạng được hoặc lỗi, quay lại vòng lặp
+                    print("⚠️ Không nhận được câu hỏi. Thử lại hoặc gõ tay.")
+                    continue
+
             
-            # Bỏ qua nếu là lệnh
-            if message.lower() in ["clear", "status", "help"]: 
-                continue
+            # Xử lý lệnh (exit/clear/status/help)
+            if message.lower() in ["exit", "quit", "clear", "status", "help"]:
+                if not handle_command(message, session):
+                    break
+                # Bỏ qua nếu là lệnh
+                if message.lower() in ["clear", "status", "help"]: 
+                    continue
+
             
-            # Xử lý câu hỏi thường
+            # Xử lý câu hỏi thường (bao gồm cả câu hỏi từ giọng nói)
             print("🔎 Đang tìm kiếm trong Pinecone Index...")
             
             # Lưu câu hỏi trước khi gọi bot
@@ -629,4 +696,4 @@ if __name__ == "__main__":
             print("\n\n👋 Tạm biệt!")
             break
         except Exception as e:
-            print(f"\n❌ Lỗi: {e}\n")
+            print(f"\n❌ Lỗi chung: {e}\n")
