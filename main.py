@@ -14,8 +14,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # Lấy đường dẫn đến credentials.json từ biến môi trường
-GOOGLE_SERVICE_ACCOUNT_FILE = r"./laoslanguage-0ff33088fe81.json"
-GOOGLE_SHEET_ID = "11uz6CmRLKO1yL1dHCMBcQtpl_lbtgM8BEf2ycJRS-UA"
+GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE") 
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 
 # Phạm vi quyền truy cập Google Sheets
 SCOPES = [
