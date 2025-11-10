@@ -11,8 +11,6 @@ try:
 except ImportError:
     print("❌ Lỗi: Cần cài đặt thư viện 'gspread' (pip install gspread).")
     sys.exit(1)
-# ⬅️ THÊM IMPORT MODULE EXCEL
-from excel_query import ExcelQueryHandler
 
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -43,8 +41,6 @@ EMBEDDING_DIM = 3072
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE") 
 
-# ⬅️ THÊM BIẾN ĐƯỜNG DẪN FILE EXCEL
-EXCEL_FILE_PATH = os.getenv("EXCEL_FILE_PATH", "IIPVietNam.xlsx")
 
 llm = ChatOpenAI(
     api_key=OPENAI__API_KEY,
@@ -64,84 +60,85 @@ emb = OpenAIEmbeddings(api_key=OPENAI__API_KEY, model=OPENAI__EMBEDDING_MODEL)
 vectordb = None
 retriever = None
 
-# ===================== EXCEL HANDLER =====================
-excel_handler = None
-if Path(EXCEL_FILE_PATH).exists():
-    try:
-        excel_handler = ExcelQueryHandler(EXCEL_FILE_PATH)
-        print(f"✅ Đã load Excel Handler: {EXCEL_FILE_PATH}")
-    except Exception as e:
-        print(f"⚠️ Không thể load Excel: {e}")
-else:
-    print(f"⚠️ Không tìm thấy file Excel: {EXCEL_FILE_PATH}")
-
-
-
-
 # ===================== NEW CONSTANTS FOR DATA COLLECTION =====================
 CONTACT_TRIGGER_RESPONSE = 'Anh/chị vui lòng để lại tên và số điện thoại, chuyên gia của IIP sẽ liên hệ và giải đáp các yêu cầu của anh/chị ạ.'
 FIXED_RESPONSE_Q3 = 'Nếu bạn muốn biết thêm thông tin chi tiết về các cụm, hãy truy cập vào website https://iipmap.com/.'
 
 
-# ===================== SYSTEM PROMPT (CẬP NHẬT) =====================
+# ===================== SYSTEM PROMPT (Không thay đổi) =====================
 PDF_READER_SYS = (
-    "Bạn là một trợ lý AI pháp lý thông minh, chuyên đọc hiểu và tra cứu các tài liệu được cung cấp "
-    "(bao gồm: Luật, Nghị định, Quyết định, Thông tư, Văn bản hợp nhất, Quy hoạch, Danh mục khu/cụm công nghiệp, v.v.). "
+    "Bạn là một trợ lý AI pháp lý chuyên đọc hiểu và tra cứu các tài liệu được cung cấp "
+    "(bao gồm: Luật, Nghị định, Quyết định, Thông tư, Văn bản hợp nhất, Quy hoạch, Danh mục khu công nghiệp, v.v.). "
     "Nhiệm vụ của bạn là trích xuất và trả lời chính xác các thông tin có trong tài liệu, "
     "đặc biệt liên quan đến Lao động, Dân sự và các Khu công nghiệp, Cụm công nghiệp tại Việt Nam.\n\n"
 
-    "⚙️ NGUYÊN TẮC ỨNG XỬ:\n"
-    "1️⃣ Nếu người dùng chào hỏi hoặc đặt câu hỏi chung chung (ví dụ: 'xin chào', 'bạn làm được gì', 'giúp tôi với'...), "
-    "hãy trả lời NGUYÊN VĂN như sau:\n"
+    "⚙️ QUY TẮC ĐẶC BIỆT:\n"
+    "- Nếu người dùng chỉ chào hỏi hoặc đặt câu hỏi chung chung (ví dụ: 'xin chào', 'bạn làm được gì', 'giúp tôi với'...), "
+    "hãy trả lời nguyên văn như sau:\n"
     "'Xin chào! Mình là Chatbot Cổng việc làm Việt Nam. Mình có thể giúp anh/chị tra cứu và giải thích các quy định pháp luật "
     "(luật, nghị định, thông tư...) liên quan đến lao động, việc làm, dân sự và các lĩnh vực pháp lý khác. "
     "Gõ câu hỏi cụ thể hoặc mô tả tình huống nhé — mình sẽ trả lời ngắn gọn, có dẫn nguồn.'\n\n"
-
-    "📘 NGUYÊN TẮC CHUNG:\n"
-    "2️⃣ Phân loại câu hỏi:\n"
-    "   - Câu hỏi CHUNG CHUNG hoặc NGOÀI TÀI LIỆU: Trả lời ngắn gọn (1–3 câu), lịch sự, không đi sâu.\n"
-    "   - Câu hỏi VỀ LUẬT/NGHỊ ĐỊNH hoặc TRONG TÀI LIỆU: Trả lời đầy đủ, chính xác theo nội dung tài liệu.\n"
-    "   - Câu hỏi VỀ SỐ LƯỢNG HOẶC DANH SÁCH KHU/CỤM CÔNG NGHIỆP (ví dụ: 'Có bao nhiêu KCN ở Bắc Ninh', 'Liệt kê các CCN ở Đồng Nai') "
-    "     → KHÔNG tự trả lời. Hãy trả lời ngắn gọn rằng: 'Đang truy xuất dữ liệu từ hệ thống khu/cụm công nghiệp...', "
-    "     để hệ thống tự động xử lý bằng cơ chế Excel Query.\n\n"
-
-    "3️⃣ Phạm vi: Chỉ dựa vào các tài liệu đã được cung cấp; tuyệt đối không suy diễn kiến thức ngoài.\n\n"
-
-    "4️⃣ Khi trả lời về luật, nghị định: Ghi rõ nguồn (ví dụ: 'Theo Điều X, Nghị định số Y/NĐ-CP...'). "
-    "KHÔNG được dùng dạng [1], [2], [3]... hoặc nhắc tới 'PDF', 'tài liệu PDF'.\n\n"
-
-    "5️⃣ Văn phong: Pháp lý, trung lập, rõ ràng, hành chính. Không dùng ký tự **in đậm** hoặc __gạch chân__.\n\n"
-
-    "6️⃣ Nếu câu hỏi mơ hồ, hãy yêu cầu người dùng làm rõ hoặc bổ sung chi tiết để trả lời chính xác hơn.\n\n"
-
-    "🏭 QUY TẮC ĐẶC BIỆT CHO KHU/CỤM CÔNG NGHIỆP:\n"
-    "1) Nếu câu hỏi chỉ hỏi SỐ LƯỢNG, DANH SÁCH, hoặc LIỆT KÊ các khu/cụm công nghiệp → KHÔNG tự trả lời. "
-    "Hãy phản hồi ngắn gọn: 'Đang truy xuất dữ liệu khu/cụm công nghiệp...', hệ thống sẽ trả lời bằng bảng.\n\n"
-
-    "2) Nếu người dùng hỏi CHI TIẾT về một khu/cụm cụ thể (ví dụ: 'Chi tiết KCN VSIP 1 ở Bình Dương'), "
-    "hãy trả lời theo các thông tin có trong tài liệu, bao gồm:\n"
-    "   - Tên khu/cụm\n"
-    "   - Địa điểm (tỉnh/thành phố, huyện/thị xã)\n"
-    "   - Diện tích (ha hoặc m²)\n"
-    "   - Cơ quan quản lý / chủ đầu tư\n"
-    "   - Quyết định thành lập / phê duyệt quy hoạch\n"
-    "   - Ngành nghề hoạt động chính\n"
-    "   - Tình trạng hoạt động (đang hoạt động / đang quy hoạch / đang xây dựng)\n\n"
-
-    "3) Nếu người dùng hỏi lại chi tiết về các khu/cụm khác (từ lần thứ hai trở đi), "
-    "hãy KHÔNG liệt kê lại mà trả lời cố định như sau:\n"
+    
+    "📘 NGUYÊN TẮC CHUNG KHI TRẢ LỜI:\n"
+    "1) Phân loại câu hỏi:\n"
+    "   - Câu hỏi CHUNG CHUNG hoặc NGOÀI TÀI LIỆU: Trả lời ngắn gọn (1-3 câu), lịch sự, không đi sâu vào chi tiết.\n"
+    "   - Câu hỏi VỀ LUẬT/NGHỊ ĐỊNH hoặc TRONG TÀI LIỆU: Trả lời đầy đủ, chi tiết, chính xác theo đúng nội dung tài liệu.\n\n"
+    
+    "2) Phạm vi: Chỉ dựa vào nội dung trong các tài liệu đã được cung cấp; tuyệt đối không sử dụng hoặc suy diễn kiến thức bên ngoài.\n\n"
+    
+    "3) Nguồn trích dẫn: \n"
+    "   - Khi trả lời về luật, nghị định: Ghi rõ nguồn (ví dụ: Theo Điều X, Nghị định số Y/NĐ-CP...).\n"
+    "   - TUYỆT ĐỐI KHÔNG được ghi theo dạng [1], [2], [3]...\n"
+    "   - TUYỆT ĐỐI KHÔNG được sử dụng cụm từ: 'tài liệu PDF', 'trích từ tài liệu PDF', 'dưới đây là thông tin từ tài liệu PDF', hoặc các cụm tương tự.\n"
+    "   - Thay vào đó, nêu trực tiếp: 'Theo Luật Việc làm quy định...', 'Nghị định số X/NĐ-CP nêu rõ...'\n\n"
+    
+    "4) Ngôn ngữ: Sử dụng văn phong pháp lý, trung lập, rõ ràng và tôn trọng ngữ điệu hành chính.\n\n"
+    
+    "5) Trình bày: \n"
+    "   - Ưu tiên danh sách (số thứ tự hoặc gạch đầu dòng) để dễ theo dõi.\n"
+    "   - TUYỆT ĐỐI KHÔNG sử dụng ký hiệu in đậm (** hoặc __) trong bất kỳ phần trả lời nào.\n\n"
+    
+    
+    "6 Nếu câu hỏi mơ hồ: Yêu cầu người dùng làm rõ hoặc bổ sung chi tiết để trả lời chính xác hơn.\n\n"
+    
+    "🏭 QUY ĐỊNH RIÊNG ĐỐI VỚI CÁC KHU CÔNG NGHIỆP / CỤM CÔNG NGHIỆP:\n"
+    "1) Nếu người dùng hỏi 'Tỉnh/thành phố nào có bao nhiêu khu hoặc cụm công nghiệp', "
+    "hãy trả lời theo định dạng sau:\n"
+    "   - Số lượng khu/cụm công nghiệp trong tỉnh hoặc thành phố đó.\n"
+    "   - Danh sách tên của tất cả các khu/cụm.\n\n"
+    "   Ví dụ:\n"
+    "   'Tỉnh Bình Dương có 29 khu công nghiệp. Bao gồm:\n"
+    "   - Khu công nghiệp Sóng Thần 1\n"
+    "   - Khu công nghiệp VSIP 1\n"
+    "   - Khu công nghiệp Mỹ Phước 3\n"
+    "   ...'\n\n"
+    
+    "2) Nếu người dùng hỏi chi tiết về một khu/cụm công nghiệp cụ thể (lần đầu tiên), hãy trình bày đầy đủ thông tin (nếu có trong tài liệu), gồm:\n"
+    "   - Tên khu công nghiệp (kcn) / cụm công nghiệp (cnn)\n"
+    "   - Địa điểm (tỉnh/thành phố, huyện/thị xã)\n"
+    "   - Diện tích (ha hoặc m²)\n"
+    "   - Cơ quan quản lý / chủ đầu tư\n"
+    "   - Quyết định thành lập hoặc phê duyệt quy hoạch\n"
+    "   - Ngành nghề hoạt động chính\n"
+    "   - Tình trạng hoạt động (đang hoạt động / đang quy hoạch / đang xây dựng)\n"
+    "   - Các thông tin khác liên quan (nếu có)\n\n"
+    
+    "3) Nếu người dùng tiếp tục hỏi chi tiết về các cụm hoặc khu công nghiệp (từ lần thứ hai trở đi), "
+    "hãy không liệt kê lại thông tin chi tiết, mà trả lời cố định như sau:\n"
     f"'{FIXED_RESPONSE_Q3}'\n\n"
-
-    "4) Nếu người dùng hỏi ngoài phạm vi pháp luật hoặc KCN/CCN "
-    "(ví dụ: tuyển dụng, đầu tư, giá đất...), hãy trả lời nguyên văn:\n"
-    f"'{CONTACT_TRIGGER_RESPONSE}'\n\n"
-
-    "🎯 TÓM TẮT:\n"
-    "- Câu hỏi chung / chào hỏi → Trả lời NGẮN GỌN, lịch sự.\n"
-    "- Câu hỏi pháp luật → Trả lời ĐẦY ĐỦ, chính xác.\n"
-    "- Câu hỏi về SỐ LƯỢNG hoặc DANH SÁCH KCN/CCN → KHÔNG trả lời, để hệ thống Excel Query xử lý.\n"
+    
+    "4) Nếu người dùng chỉ hỏi thống kê (ví dụ: 'Tỉnh Bắc Ninh có bao nhiêu cụm công nghiệp?'), "
+    "hãy luôn trả lời số lượng và liệt kê thật đầy đủ tên cụm/khu, KHÔNG được phép liệt kê thông tin chi tiết khác ngoài tên.\n\n"
+    
+    "5) Nếu người dùng hỏi câu ngoài phạm vi pháp luật hoặc khu/cụm công nghiệp "
+    "(ví dụ: hỏi về tuyển dụng, giá đất, đầu tư cá nhân, v.v.), "
+    "hãy trả lời nguyên văn như sau:\n"
+    f"'{CONTACT_TRIGGER_RESPONSE}'\n\n" 
+    
+    "🎯 TÓM TẮT: \n"
+    "- Câu hỏi chung chung/ngoài tài liệu → Trả lời NGẮN GỌN.\n"
+    "- Câu hỏi về luật/nghị định/trong tài liệu → Trả lời ĐẦY ĐỦ, CHÍNH XÁC theo tài liệu.\n"
 )
-
 
 # ===================== GOOGLE SHEET UTILS (THỰC TẾ) =====================
 def is_valid_phone(phone: str) -> bool:
@@ -386,116 +383,57 @@ def count_previous_detail_queries(history: List[BaseMessage]) -> int:
                     count += 1
     return count
 
-def classify_question_intent(question: str) -> str:
-    """
-    Phân loại ý định câu hỏi:
-    - "count" → hỏi số lượng / liệt kê / danh sách
-    - "detail" → hỏi thông tin chi tiết
-    - "other" → còn lại
-    """
-    q = question.lower()
-    q_norm = re.sub(r"[^a-z0-9\s]", "", q)
-
-    count_keywords = [
-        "bao nhieu", "so luong", "liet ke", "danh sach", "ke ten",
-        "co may", "tong so", "toan bo", "bao gom", "nhung", "cac"
-    ]
-    industrial_keywords = [
-        "kcn", "ccn", "khu cong nghiep", "cum cong nghiep",
-        "khu cn", "cum cn", "cong nghiep"
-    ]
-
-    if any(k in q_norm for k in industrial_keywords) and any(k in q_norm for k in count_keywords):
-        return "count"
-
-    # 🔹 Bổ sung nhận diện implicit “các KCN ở …”
-    if re.search(r"cac (khu|cum) cong nghiep", q_norm) or re.search(r"nhung (khu|cum) cong nghiep", q_norm):
-        return "count"
-
-    detail_keywords = [
-        "chi tiet", "thong tin", "mo ta", "chu dau tu",
-        "dien tich", "nganh nghe", "quy hoach", "trang thai"
-    ]
-    if any(k in q_norm for k in industrial_keywords) and any(k in q_norm for k in detail_keywords):
-        return "detail"
-
-    return "other"
-
 def process_pdf_question(i: Dict[str, Any]) -> str:
-    """
-    Xử lý câu hỏi từ người dùng — ƯU TIÊN kiểm tra Excel (số lượng / liệt kê)
-    trước khi gửi vào mô hình GPT (Prompt).
-    """
-    global retriever, excel_handler
-
+    """Xử lý câu hỏi từ người dùng"""
+    global retriever
+    
     message = i["message"]
     history: List[BaseMessage] = i.get("history", [])
+
     clean_question = clean_question_remove_uris(message)
-
-    # ================================
-    # 1️⃣ KIỂM TRA CÂU HỎI LIÊN QUAN ĐẾN SỐ LƯỢNG / LIỆT KÊ TRƯỚC TIÊN
-    # ================================
-    if excel_handler is not None:
-        try:
-            # Nếu người dùng hỏi về số lượng, danh sách, liệt kê KCN/CCN
-            if excel_handler.is_count_query(clean_question):
-                print("📊 Phát hiện: Câu hỏi đếm / liệt kê KCN-CCN → Dùng Excel")
-                handled, excel_response = excel_handler.process_query(clean_question)
-                if handled and excel_response:
-                    return excel_response
-        except Exception as e:
-            print(f"⚠️ Lỗi khi xử lý Excel Query: {e}")
-
-    # ================================
-    # 2️⃣ PHÂN LOẠI Ý ĐỊNH CÂU HỎI (phục vụ các loại khác)
-    # ================================
-    intent = classify_question_intent(clean_question)
-    # print(f"🤖 Phân loại câu hỏi: {intent}")
-
-    # ================================
-    # 3️⃣ NẾU LÀ CÂU HỎI CHI TIẾT → ÁP DỤNG QUY TẮC 3
-    # ================================
-    if intent == "detail":
+    
+    # Logic Quy tắc 3
+    if is_detail_query(clean_question):
         count_detail_queries = count_previous_detail_queries(history)
-        if count_detail_queries >= 1:
+        if count_detail_queries >= 1: 
             return FIXED_RESPONSE_Q3
-
-    # ================================
-    # 4️⃣ CÒN LẠI: TRẢ LỜI BẰNG GPT / PINECONE (System Prompt)
-    # ================================
+        
+    # Kiểm tra retriever
     if retriever is None:
         return "❌ VectorDB chưa được load hoặc không có dữ liệu. Vui lòng kiểm tra lại Pinecone Index."
     
     try:
+        # Tìm kiếm trong VectorDB
         hits = retriever.invoke(clean_question)
-
+        
         if not hits:
+            # Nếu không tìm thấy, trả lời chung chung
             return "Xin lỗi, tôi không tìm thấy thông tin liên quan trong dữ liệu hiện có."
 
-        # Xây dựng context cho GPT
+        # Xây dựng context
         context = build_context_from_hits(hits, max_chars=6000)
+        
+        # Tạo messages
         messages = [SystemMessage(content=PDF_READER_SYS)]
-
-        # Giữ lại lịch sử ngắn để GPT hiểu ngữ cảnh
         if history:
-            messages.extend(history[-10:])
+            messages.extend(history[-10:]) 
 
         user_message = f"""Câu hỏi: {clean_question}
 
 Nội dung liên quan từ tài liệu:
 {context}
 
-Hãy trả lời dựa trên nội dung trên và tuân thủ System Prompt."""
+Hãy trả lời dựa trên các nội dung trên."""
         
         messages.append(HumanMessage(content=user_message))
+        
+        # Gọi LLM
         response = llm.invoke(messages).content
         return response
 
     except Exception as e:
         print(f"❌ Lỗi: {e}")
         return f"Xin lỗi, tôi gặp lỗi khi xử lý câu hỏi: {str(e)}"
-
-
 
 # ===================== MAIN CHATBOT =====================
 pdf_chain = RunnableLambda(process_pdf_question)
@@ -553,21 +491,6 @@ def handle_command(command: str, session: str) -> bool:
             print("❌ Trạng thái: Chưa sẵn sàng")
             print(f"💡 Index '{PINECONE_INDEX_NAME}' không tồn tại hoặc không có documents.")
         print("="*60 + "\n")
-        return True
-    
-    elif cmd == "excel":
-        if excel_handler is not None:
-            print("\n" + "="*60)
-            print("📊 THÔNG TIN FILE EXCEL")
-            print("="*60)
-            print(f"📁 File: {EXCEL_FILE_PATH}")
-            print(f"📚 Tổng bản ghi: {len(excel_handler.df)}")
-            print(f"📍 Cột tỉnh: {excel_handler.province_column}")
-            print(f"📝 Cột tên: {excel_handler.name_column}")
-            print(f"🏠 Cột địa chỉ: {excel_handler.address_column}")
-            print("="*60 + "\n")
-        else:
-            print("❌ Excel Handler chưa được khởi tạo.\n")
         return True
     
     elif cmd == "help":

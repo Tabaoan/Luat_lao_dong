@@ -21,7 +21,7 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
 EMBEDDING_DIM = 3072  
-PDF_FOLDER = "./data_1"
+PDF_FOLDER = r"C:\Users\tabao\Downloads\cong_viec_lam\luật"  
 BATCH_SIZE = 30  
 
 # ===================== KHỞI TẠO =====================

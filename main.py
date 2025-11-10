@@ -142,7 +142,7 @@ async def predict(data: Question):
         
         # ✅ Gọi chatbot thực tế nếu có (Giả định app.py có chứa đối tượng chatbot)
         if CHATBOT_AVAILABLE and hasattr(app, "chatbot"):
-            session = "api_session" # ID session cố định cho API call
+            session = "api_session" 
             
             # Kiểm tra xem app.chatbot.invoke có phải là hàm bất đồng bộ (coroutine) không
             if hasattr(app.chatbot, 'invoke'):
@@ -188,7 +188,6 @@ async def predict(data: Question):
             answer = f"(Chatbot mô phỏng - LỖI BACKEND: Không tìm thấy đối tượng app.chatbot) Bạn hỏi: '{question}'"
 
         # ✅ Nếu người dùng đã gửi phone ngay từ đầu (tùy chọn - không phổ biến)
-        # Trường hợp này xảy ra khi client tự động gửi kèm phone trong request đầu tiên
         if data.phone and SHEET_AVAILABLE:
             try:
                 # Gọi hàm save_contact_info từ app.py
@@ -205,7 +204,7 @@ async def predict(data: Question):
         # ✅ RESPONSE (GIỐNG LOGIC APP.PY)
         return {
             "answer": answer,
-            "requires_contact": requires_contact  # Flag để client biết cần thu thập thông tin
+            "requires_contact": requires_contact  
         }
 
     except Exception as e:
@@ -336,9 +335,8 @@ async def get_status():
 # ---------------------------------------
 # 6️⃣ Khởi động server Uvicorn (FastAPI)
 # ---------------------------------------
-# KHÔNG CẦN đoạn này khi deploy lên Render/Gunicorn/uvicorn (họ sẽ chạy lệnh: uvicorn main:app_fastapi --host 0.0.0.0 --port $PORT)
-# Tuy nhiên, giữ lại để dễ dàng chạy local
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    # Dùng "0.0.0.0" là tốt nhất cho cả local và deployment (để Render hoạt động)
+
     uvicorn.run("main:app_fastapi", host="0.0.0.0", port=port, log_level="info", reload=True)
