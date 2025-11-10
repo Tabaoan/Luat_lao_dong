@@ -227,7 +227,7 @@ def integrate_excel_to_chatbot(excel_path: str):
 # 🧪 TEST MODULE
 # ==========================================================
 if __name__ == "__main__":
-    EXCEL_FILE = r"./data\IIPMap_FULL_63_COMPLETE.xlsx"
+    EXCEL_FILE = r"./data/IIPMap_FULL_63_COMPLETE.xlsx"
     handler = ExcelQueryHandler(EXCEL_FILE)
 
     test_queries = [
