@@ -74,17 +74,51 @@ class ExcelQueryHandler:
     # 🧠 NHẬN DIỆN CÂU HỎI NGƯỜI DÙNG
     # ==========================================================
     def is_count_query(self, question: str) -> bool:
-        """Nhận diện câu hỏi về đếm hoặc liệt kê KCN/CCN"""
-        question_norm = self._normalize_text(question.lower())
-        count_keywords = ["bao nhieu", "so luong", "liet ke", "danh sach",
-                          "tong so", "co tat ca", "ke ten", "cho biet", "dem",
-                          "bao gom", "toan bo", "ke ra", "danh muc","cac"]
-        industrial_keywords = ["kcn", "ccn", "khu cong nghiep", "cum cong nghiep",
-                               "khu cn", "cum cn", "khu nghiep", "cum nghiep", "cong nghiep"]
+            """
+            Nhận diện câu hỏi về đếm hoặc liệt kê KCN/CCN.
+            Bổ sung để nhận cả các câu như:
+            - 'Danh sách cụm công nghiệp ở Hà Nam'
+            - 'Các khu công nghiệp Bắc Ninh'
+            - 'Toàn bộ KCN của Việt Nam'
+            """
+            question_norm = self._normalize_text(question.lower())
 
-        has_count = any(k in question_norm for k in count_keywords)
-        has_industrial = any(k in question_norm for k in industrial_keywords)
-        return has_count and has_industrial
+            # Các nhóm từ khóa
+            count_keywords = [
+                "bao nhieu", "so luong", "tong so", "dem", "ke ten",
+                "liet ke", "cho biet", "bao gom", "ke ra",
+                "danh sach", "toan bo", "danh muc", "cac", "nhung"
+            ]
+
+            industrial_keywords = [
+                "kcn", "ccn", "khu cong nghiep", "cum cong nghiep",
+                "khu cn", "cum cn", "khu nghiep", "cum nghiep", "cong nghiep"
+            ]
+
+            # Nếu có cụm công nghiệp hoặc khu công nghiệp trong câu
+            has_industrial = any(k in question_norm for k in industrial_keywords)
+
+            # Nếu có từ khóa liệt kê hoặc từ khóa mô tả danh sách
+            has_count = any(k in question_norm for k in count_keywords)
+
+            # Cho phép trường hợp: chỉ có industrial keywords
+            # nhưng câu có cấu trúc như “Danh sách ...”, “Các ...”, “Toàn bộ ...”
+            if has_industrial:
+                return True if has_count or any(k in question_norm for k in ["danh sach", "cac", "nhung", "toan bo"]) else True
+
+            return False
+
+    # ==========================================================
+    # 🧭 XÁC ĐỊNH LOẠI TRUY VẤN (KHU / CỤM)
+    # ==========================================================
+    def detect_type(self, question: str) -> Optional[str]:
+        """Xác định người dùng hỏi khu hay cụm công nghiệp"""
+        q = self._normalize_text(question)
+        if any(k in q for k in ["cum cong nghiep", "ccn", "cum cn", "cum nghiep"]):
+            return "CCN"
+        elif any(k in q for k in ["khu cong nghiep", "kcn", "khu cn", "khu nghiep"]):
+            return "KCN"
+        return None  # Không xác định rõ
 
     # ==========================================================
     # 🧩 TRÍCH XUẤT TỈNH/THÀNH PHỐ
@@ -121,27 +155,36 @@ class ExcelQueryHandler:
     # ==========================================================
     # 🔍 TRUY VẤN DỮ LIỆU
     # ==========================================================
-    def query_by_province(self, province_name: str) -> Optional[pd.DataFrame]:
-        """Lọc dữ liệu theo tỉnh/thành phố"""
+    def query_by_province(self, province_name: str, query_type: Optional[str]) -> Optional[pd.DataFrame]:
+        """Lọc dữ liệu theo tỉnh/thành phố và loại (KCN/CCN)"""
         if self.df is None or self.columns_map["province"] is None:
             return None
-        if province_name == "TOÀN QUỐC":
-            return self.df.copy()
-        mask = self.df[self.columns_map["province"]].astype(str).str.lower().str.contains(
-            province_name.lower(), na=False
-        )
-        return self.df[mask].copy()
+
+        df_filtered = self.df.copy() if province_name == "TOÀN QUỐC" else \
+            self.df[self.df[self.columns_map["province"]].astype(str).str.lower().str.contains(
+                province_name.lower(), na=False
+            )]
+
+        if query_type == "KCN":
+            mask = df_filtered[self.columns_map["name"]].astype(str).str.contains("khu", case=False, na=False)
+            df_filtered = df_filtered[mask]
+        elif query_type == "CCN":
+            mask = df_filtered[self.columns_map["name"]].astype(str).str.contains("cum", case=False, na=False)
+            df_filtered = df_filtered[mask]
+
+        return df_filtered.copy()
 
     # ==========================================================
     # 🧾 TRẢ KẾT QUẢ DẠNG JSON
     # ==========================================================
-    def format_json_response(self, df: pd.DataFrame, province_name: str) -> str:
+    def format_json_response(self, df: pd.DataFrame, province_name: str, query_type: Optional[str]) -> str:
         """Trả kết quả truy vấn dạng JSON"""
         if df is None or df.empty:
+            label = "khu" if query_type == "KCN" else "cụm" if query_type == "CCN" else "khu/cụm"
             return json.dumps({
                 "province": province_name,
                 "count": 0,
-                "message": f"Không tìm thấy thông tin tại {province_name}.",
+                "message": f"Không tìm thấy {label} công nghiệp tại {province_name}.",
                 "data": []
             }, ensure_ascii=False, indent=2)
 
@@ -160,10 +203,11 @@ class ExcelQueryHandler:
             }
             records.append(item)
 
+        label = "khu" if query_type == "KCN" else "cụm" if query_type == "CCN" else "khu/cụm"
         response = {
             "province": province_name,
             "count": len(df),
-            "message": f"{province_name} có {len(df)} khu/cụm công nghiệp.",
+            "message": f"{province_name} có {len(df)} {label} công nghiệp.",
             "data": records
         }
 
@@ -181,17 +225,14 @@ class ExcelQueryHandler:
         if province is None:
             return False, json.dumps({"error": "❓ Bạn vui lòng nêu rõ tỉnh/thành phố cần tra cứu."}, ensure_ascii=False)
 
-        df_result = self.query_by_province(province)
+        query_type = self.detect_type(question)
+        df_result = self.query_by_province(province, query_type)
+
         if df_result is None or df_result.empty:
-            return True, json.dumps({
-                "province": province,
-                "count": 0,
-                "message": f"Không có thông tin khu/cụm công nghiệp tại {province}.",
-                "data": []
-            }, ensure_ascii=False)
+            return True, self.format_json_response(df_result, province, query_type)
 
         if return_json:
-            return True, self.format_json_response(df_result, province)
+            return True, self.format_json_response(df_result, province, query_type)
         else:
             return True, self.format_table_response(df_result, province)
 
@@ -231,8 +272,10 @@ if __name__ == "__main__":
     handler = ExcelQueryHandler(EXCEL_FILE)
 
     test_queries = [
-        "Các khu công nghiệp ở Bắc Ninh",
-        "Liệt kê cụm công nghiệp tại lào Cai",
+        "Các khu cụm công nghiệp ở Bắc Ninh"
+        # "Liệt kê cụm công nghiệp tại Lào Cai",
+        # "Cho biết tổng số khu công nghiệp toàn quốc",
+        # "Danh sách cụm công nghiệp ở Hà Nam"
     ]
 
     print("\n" + "=" * 80)

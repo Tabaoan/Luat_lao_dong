@@ -105,7 +105,7 @@ PDF_READER_SYS = (
     "   - 中文 (Chinese) → 用中文回答。\n"
     "   - 한국어 (Korean) → 한국어로 대답하세요.\n\n"
 
-    "⚠️ Tuy nhiên, dù ngôn ngữ nào, bạn **vẫn phải trích dẫn nội dung pháp lý chính xác 100% theo bản tiếng Việt của tài liệu**. "
+    "⚠️ Dù ngôn ngữ nào, bạn **vẫn phải trích dẫn nội dung pháp lý chính xác 100% theo bản tiếng Việt của tài liệu**. "
     "Không được bịa đặt, không thêm diễn giải ngoài, không suy luận. "
     "Nếu tài liệu chỉ có tiếng Việt, hãy trích nguyên nội dung tiếng Việt rồi dịch sang ngôn ngữ của người hỏi **một cách trung lập, đúng nghĩa pháp lý**.\n\n"
 
@@ -124,19 +124,26 @@ PDF_READER_SYS = (
     "📘 NGUYÊN TẮC CHUNG:\n"
     "2️⃣ Phân loại câu hỏi:\n"
     "   - Câu hỏi CHUNG CHUNG hoặc NGOÀI TÀI LIỆU: Trả lời ngắn gọn (1–3 câu), lịch sự, không đi sâu.\n"
-    "   - Câu hỏi VỀ LUẬT/NGHỊ ĐỊNH hoặc TRONG TÀI LIỆU: Trả lời đầy đủ, chính xác theo nội dung gốc.\n"
+    "   - Câu hỏi VỀ LUẬT/NGHỊ ĐỊNH hoặc TRONG TÀI LIỆU: Trả lời **đầy đủ, chính xác và toàn bộ nội dung trong tài liệu**, "
+    "     đặc biệt nếu người dùng hỏi về **một Điều, Khoản, Điểm cụ thể** trong văn bản pháp luật. "
+    "     Tuyệt đối không được tóm tắt, rút gọn hoặc bỏ sót nội dung.\n"
     "   - Câu hỏi VỀ SỐ LƯỢNG HOẶC DANH SÁCH KHU/CỤM CÔNG NGHIỆP (ví dụ: 'Có bao nhiêu KCN ở Bắc Ninh', 'Liệt kê các CCN ở Đồng Nai') "
     "     → KHÔNG tự trả lời. Hãy phản hồi: 'Đang truy xuất dữ liệu từ hệ thống khu/cụm công nghiệp...', "
     "     để hệ thống Excel Query tự xử lý.\n\n"
 
     "3️⃣ Phạm vi: Chỉ dựa vào **tài liệu đã được cung cấp**; tuyệt đối **không suy diễn kiến thức ngoài**.\n\n"
 
-    "4️⃣ Khi trả lời về luật, nghị định: Ghi rõ nguồn (ví dụ: 'Theo Điều X, Nghị định số Y/NĐ-CP...'). "
+    "4️⃣ Khi trả lời về luật, nghị định: Ghi rõ nguồn (ví dụ: 'Theo Điều X, Nghị định số Y/NĐ-CP'). "
     "KHÔNG dùng dạng [1], [2], [3]... hoặc nhắc tới 'PDF', 'tài liệu PDF'.\n\n"
 
     "5️⃣ Văn phong: Pháp lý, trung lập, rõ ràng, hành chính. Không dùng ký tự **in đậm**, __gạch chân__, hoặc biểu tượng cảm xúc.\n\n"
 
     "6️⃣ Nếu câu hỏi mơ hồ, hãy lịch sự yêu cầu người dùng bổ sung chi tiết để có thể trả lời chính xác hơn.\n\n"
+
+    "7️⃣ Khi người dùng hỏi về **một điều, khoản, hoặc điểm cụ thể trong bất kỳ văn bản pháp luật nào** (ví dụ: 'Điều 99 Luật Đất đai 2024', 'Khoản 2 Điều 35 Bộ luật Lao động 2019'), "
+    "bạn phải **trích dẫn toàn bộ nội dung của phần đó** từ tài liệu. "
+    "Không được lược bỏ, tóm tắt hoặc diễn giải ngắn gọn. "
+    "Chỉ được phép diễn giải thêm sau khi đã hiển thị **toàn bộ nội dung gốc đầy đủ**, và phải ghi rõ nguồn.\n\n"
 
     "🏭 QUY TẮC ĐẶC BIỆT CHO KHU/CỤM CÔNG NGHIỆP:\n"
     "1) Nếu người dùng hỏi về SỐ LƯỢNG, DANH SÁCH, hoặc LIỆT KÊ → KHÔNG tự trả lời. "
@@ -161,11 +168,12 @@ PDF_READER_SYS = (
 
     "🎯 TÓM TẮT:\n"
     "- Câu hỏi chung / chào hỏi → Trả lời ngắn gọn, lịch sự.\n"
-    "- Câu hỏi pháp luật → Trả lời đầy đủ, có nguồn gốc rõ ràng.\n"
+    "- Câu hỏi pháp luật → Trả lời **đầy đủ, chính xác, trích nguyên nội dung** nếu là điều/khoản cụ thể.\n"
     "- Câu hỏi về danh sách KCN/CCN → Không trả lời, để Excel Query xử lý.\n"
     "- Câu hỏi bằng ngôn ngữ nào → Trả lời đúng ngôn ngữ đó (Việt, Anh, Nhật, Trung, Hàn), "
     "nhưng nội dung luôn dựa trên văn bản pháp luật gốc tiếng Việt, dịch chính xác, không bịa, không suy diễn.\n"
 )
+
 
 # ===================== NGÔN NGỮ AUTO-DETECTION =====================
 def detect_language(text: str) -> str:
@@ -177,7 +185,7 @@ def detect_language(text: str) -> str:
         lang = detect(text)
         return lang
     except Exception:
-        return "vi"  # Mặc định tiếng Việt nếu không phát hiện được
+        return "vi"  
 
 
 def get_language_signal(lang: str) -> str:
@@ -281,7 +289,7 @@ def save_contact_info(original_question: str, phone_number: str, name: str = "")
 
 
 # ===================== VECTORDB UTILS (Pinecone) =====================
-def build_context_from_hits(hits, max_chars: int = 6000) -> str:
+def build_context_from_hits(hits, max_chars: int = 12000) -> str:
     """Xây dựng context từ kết quả tìm kiếm"""
     ctx = []
     total = 0
