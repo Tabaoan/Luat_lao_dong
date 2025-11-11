@@ -141,7 +141,7 @@ PDF_READER_SYS = (
     "- Câu hỏi về luật/nghị định/trong tài liệu → Trả lời ĐẦY ĐỦ, CHÍNH XÁC theo tài liệu.\n"
 )
 
-# ===================== POSTGRESQL DATABASE =====================
+# ===================== POSTGRESQL DATABASE (NÂNG CẤP) =====================
 def init_db():
     """Khởi tạo bảng chat_history nếu chưa có."""
     if not DATABASE_URL:
@@ -153,52 +153,90 @@ def init_db():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS chat_history (
                 id SERIAL PRIMARY KEY,
-                session_id TEXT,
-                role TEXT,
-                content TEXT,
+                user_id TEXT,               -- ID người dùng (nếu có login)
+                session_id TEXT,             -- Mã định danh tạm
+                user_ip TEXT,                -- Địa chỉ IP
+                device_info TEXT,            -- Thông tin thiết bị / trình duyệt
+                question TEXT,               -- Câu hỏi người dùng
+                answer TEXT,                 -- Câu trả lời của chatbot
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
         conn.commit()
         cur.close()
         conn.close()
-        print("✅ Database sẵn sàng (chat_history).")
+        print("✅ Database sẵn sàng (chat_history có đầy đủ cột).")
     except Exception as e:
         print(f"❌ Lỗi khi khởi tạo DB: {e}")
 
-def save_message_to_db(session_id: str, role: str, content: str):
-    """Lưu hội thoại vào DB."""
+
+def save_message_to_db(
+    session_id: str,
+    role: str,
+    content: str,
+    user_id: str = None,
+    user_ip: str = None,
+    device_info: str = None
+):
+    """
+    Lưu hội thoại vào DB. 
+    Với role='user' thì lưu vào cột question, role='assistant' thì lưu vào cột answer.
+    """
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO chat_history (session_id, role, content) VALUES (%s, %s, %s)",
-            (session_id, role, content),
-        )
+
+        # Nếu là tin nhắn người dùng → tạo bản ghi mới
+        if role == "user":
+            cur.execute("""
+                INSERT INTO chat_history (user_id, session_id, user_ip, device_info, question)
+                VALUES (%s, %s, %s, %s, %s);
+            """, (user_id, session_id, user_ip, device_info, content))
+
+        # Nếu là phản hồi của bot → cập nhật vào dòng cuối cùng của session
+        elif role == "assistant":
+            cur.execute("""
+                UPDATE chat_history
+                SET answer = %s, timestamp = CURRENT_TIMESTAMP
+                WHERE id = (
+                SELECT id FROM chat_history 
+                WHERE session_id = %s
+                ORDER BY id DESC
+                LIMIT 1
+                        );
+            """, (content, session_id))
+
         conn.commit()
         cur.close()
         conn.close()
     except Exception as e:
         print(f"⚠️ Lỗi khi lưu tin nhắn vào DB: {e}")
 
+
 def load_history_from_db(session_id: str):
-    """Tải lịch sử hội thoại từ DB."""
+    """Tải lịch sử hội thoại từ DB theo session."""
     history = ChatMessageHistory()
     try:
         conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
         cur = conn.cursor()
-        cur.execute("SELECT role, content FROM chat_history WHERE session_id = %s ORDER BY id ASC", (session_id,))
+        cur.execute("""
+            SELECT question, answer 
+            FROM chat_history 
+            WHERE session_id = %s 
+            ORDER BY id ASC
+        """, (session_id,))
         rows = cur.fetchall()
         for row in rows:
-            if row["role"] == "user":
-                history.add_user_message(row["content"])
-            elif row["role"] == "assistant":
-                history.add_ai_message(row["content"])
+            if row.get("question"):
+                history.add_user_message(row["question"])
+            if row.get("answer"):
+                history.add_ai_message(row["answer"])
         cur.close()
         conn.close()
     except Exception as e:
         print(f"⚠️ Lỗi khi tải lịch sử: {e}")
     return history
+
 
 def clear_history_in_db(session_id: str):
     """Xóa toàn bộ lịch sử hội thoại của session."""
@@ -212,6 +250,7 @@ def clear_history_in_db(session_id: str):
         print("🧹 Đã xóa lịch sử hội thoại trong DB.")
     except Exception as e:
         print(f"⚠️ Lỗi khi xóa lịch sử: {e}")
+
 
 # ===================== GOOGLE SHEET UTILS (THỰC TẾ) =====================
 def is_valid_phone(phone: str) -> bool:
@@ -681,8 +720,13 @@ if __name__ == "__main__":
             print(f"\n🤖 Bot: {response}\n")
             print("-" * 80 + "\n")
             
-            save_message_to_db(session, "user", current_query)
-            save_message_to_db(session, "assistant", response)
+            # Giả sử bạn có thể lấy IP & thiết bị từ request (hoặc để None)L
+            user_ip = "127.0.0.1"      # hoặc request.client.host nếu trong FastAPI
+            device_info = "CLI"        # ví dụ, "Chrome on Windows" nếu có user-agent
+
+            save_message_to_db(session, "user", current_query, user_ip=user_ip, device_info=device_info)
+            save_message_to_db(session, "assistant", response, user_ip=user_ip, device_info=device_info)
+
             # --- KIỂM TRA TRIGER THU THẬP THÔNG TIN ---
             if response.strip() == CONTACT_TRIGGER_RESPONSE.strip():
                 contact_collection_mode = True
