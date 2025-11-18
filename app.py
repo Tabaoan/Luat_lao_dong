@@ -25,6 +25,7 @@ from pinecone import Pinecone as PineconeClient
 from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage, AIMessage 
 # ⬅️ THÊM IMPORT MODULE EXCEL
 from excel_query import ExcelQueryHandler
+from langdetect import detect
 
 
 # ===================== ENV =====================
@@ -97,7 +98,7 @@ PDF_READER_SYS = (
     "📘 NGUYÊN TẮC CHUNG KHI TRẢ LỜI:\n"
     "1) Phân loại câu hỏi:\n"
     "   - Câu hỏi CHUNG CHUNG hoặc NGOÀI TÀI LIỆU: Trả lời ngắn gọn (1-3 câu), lịch sự, không đi sâu vào chi tiết.\n"
-    "   - Câu hỏi VỀ LUẬT/NGHỊ ĐỊNH hoặc TRONG TÀI LIỆU: Trả lời đầy đủ, chi tiết, chính xác theo đúng nội dung tài liệu.\n\n"
+    "   - Câu hỏi VỀ LUẬT/NGHỊ ĐỊNH hoặc TRONG TÀI LIỆU: Trả lời tất cả, đầy đủ, chi tiết, chính xác theo đúng nội dung tài liệu.\n\n"
     
     "2) Phạm vi: Chỉ dựa vào nội dung trong các tài liệu đã được cung cấp; tuyệt đối không sử dụng hoặc suy diễn kiến thức bên ngoài.\n\n"
     
@@ -150,17 +151,17 @@ PDF_READER_SYS = (
     "hãy trả lời nguyên văn như sau:\n"
     f"'{CONTACT_TRIGGER_RESPONSE}'\n\n" 
 
-    "7) Ngôn ngữ trả lời:"
-    "- Luôn trả lời đúng theo ngôn ngữ mà người dùng sử dụng trong câu hỏi cuối cùng."
-    "- Nếu người dùng hỏi bằng tiếng Việt → trả lời toàn bộ bằng tiếng Việt."
-    "- Nếu người dùng hỏi bằng tiếng Anh → trả lời toàn bộ bằng tiếng Anh."
-    "- Nếu người dùng hỏi bằng tiếng Hàn, Nhật, Trung... → trả lời đúng theo ngôn ngữ đó."
-    "- Tuyệt đối không tự ý thay đổi ngôn ngữ trả lời."
-    "- Nếu câu hỏi chứa nhiều ngôn ngữ, ưu tiên ngôn ngữ chính (ngôn ngữ chiếm phần lớn câu hỏi)."
-    
-    "🎯 TÓM TẮT: \n"
-    "- Câu hỏi chung chung/ngoài tài liệu → Trả lời NGẮN GỌN.\n"
-    "- Câu hỏi về luật/nghị định/trong tài liệu → Trả lời ĐẦY ĐỦ, CHÍNH XÁC theo tài liệu.\n"
+    "🌐 QUY TẮC NGÔN NGỮ:\n"
+    "- Luôn trả lời đúng theo NGÔN NGỮ của câu hỏi cuối cùng.\n"
+    "- Nếu tài liệu là tiếng Việt nhưng người dùng hỏi bằng ngôn ngữ khác (Anh, Hàn, Nhật, Trung...), "
+    "hãy DỊCH phần thông tin trích xuất từ tài liệu sang ngôn ngữ của người dùng rồi trình bày.\n"
+    "- Không được trả lời bằng tiếng Việt nếu người dùng không dùng tiếng Việt.\n"
+    "- Không thay đổi chủ đề hoặc thêm thông tin ngoài tài liệu.\n"
+    "- Bạn luôn sử dụng đúng ngôn ngữ được cung cấp trong metadata 'user_lang' của tin nhắn người dùng.\n\n"
+    "🎯 TÓM TẮT:\n"
+    "- Câu hỏi chung chung/ngoài tài liệu → trả lời NGẮN GỌN.\n"
+    "- Câu hỏi pháp luật/KCN/CCN → trả lời ĐẦY ĐỦ dựa trên tài liệu.\n"
+    "- Luôn dịch câu trả lời sang ngôn ngữ của người dùng nếu họ không dùng tiếng Việt.\n"
 
 )
 
@@ -407,6 +408,41 @@ def count_previous_detail_queries(history: List[BaseMessage]) -> int:
                     count += 1
     return count
 
+def convert_language(text: str, target_lang: str) -> str:
+    """
+    Dịch câu trả lời sang đúng ngôn ngữ người dùng.
+    Cải thiện: Thêm mapping ngôn ngữ rõ ràng hơn
+    """
+    # Mapping code ngôn ngữ sang tên đầy đủ
+    lang_mapping = {
+        "vi": "Tiếng Việt",
+        "en": "English",
+        "ko": "한국어 (Korean)",
+        "ja": "日本語 (Japanese)",
+        "zh-cn": "简体中文 (Simplified Chinese)",
+        "zh-tw": "繁體中文 (Traditional Chinese)",
+        "fr": "Français",
+        "de": "Deutsch",
+        "es": "Español",
+        "th": "ภาษาไทย (Thai)"
+    }
+    
+    target_lang_name = lang_mapping.get(target_lang, target_lang)
+    
+    try:
+        translated = llm.invoke([
+            SystemMessage(content="Bạn là một phiên dịch chuyên nghiệp. Hãy dịch chính xác nội dung sang ngôn ngữ được yêu cầu."),
+            HumanMessage(
+                content=f"Dịch đoạn văn sau sang {target_lang_name} ({target_lang}). CHỈ trả về bản dịch, KHÔNG thêm giải thích:\n\n{text}"
+            )
+        ]).content
+        return translated.strip()
+    except Exception as e:
+        print(f"⚠️ Lỗi dịch ngôn ngữ: {e}")
+        return text
+
+    
+
 def process_pdf_question(i: Dict[str, Any]) -> str:
     """Xử lý câu hỏi từ người dùng"""
     global retriever
@@ -415,58 +451,118 @@ def process_pdf_question(i: Dict[str, Any]) -> str:
     history: List[BaseMessage] = i.get("history", [])
 
     clean_question = clean_question_remove_uris(message)
+    
     # ================================
-    # 1️⃣ ƯU TIÊN XỬ LÝ QUA EXCEL QUERY
+    # 1️⃣ PHÁT HIỆN NGÔN NGỮ NGAY TỪ ĐẦU
+    # ================================
+    try:
+        user_lang = detect(message)
+    except:
+        user_lang = "vi"  # Default về tiếng Việt nếu không detect được
+    
+    # ================================
+    # 2️⃣ ƯU TIÊN XỬ LÝ QUA EXCEL QUERY
     # ================================
     if excel_handler is not None:
         try:
             handled, excel_response = excel_handler.process_query(clean_question)
             if handled and excel_response:
+                # Dịch response từ Excel nếu cần
+                if user_lang != "vi":
+                    excel_response = convert_language(excel_response, user_lang)
                 return excel_response
         except Exception as e:
             print(f"⚠️ Lỗi Excel Query: {e}")
-    # Logic Quy tắc 3
+    
+    # ================================
+    # 3️⃣ LOGIC QUY TẮC 3 (FIXED RESPONSE)
+    # ================================
     if is_detail_query(clean_question):
         count_detail_queries = count_previous_detail_queries(history)
         if count_detail_queries >= 1: 
-            return FIXED_RESPONSE_Q3
-        
-    # Kiểm tra retriever
+            # Dịch FIXED_RESPONSE_Q3 nếu cần
+            response = FIXED_RESPONSE_Q3
+            if user_lang != "vi":
+                response = convert_language(response, user_lang)
+            return response
+    
+    # ================================
+    # 4️⃣ KIỂM TRA RETRIEVER
+    # ================================
     if retriever is None:
-        return "❌ VectorDB chưa được load hoặc không có dữ liệu. Vui lòng kiểm tra lại Pinecone Index."
+        error_msg = "❌ VectorDB chưa được load hoặc không có dữ liệu. Vui lòng kiểm tra lại Pinecone Index."
+        if user_lang != "vi":
+            error_msg = convert_language(error_msg, user_lang)
+        return error_msg
     
     try:
-        # Tìm kiếm trong VectorDB
+        # ================================
+        # 5️⃣ TÌM KIẾM TRONG VECTORDB
+        # ================================
         hits = retriever.invoke(clean_question)
         
         if not hits:
             # Nếu không tìm thấy, trả lời chung chung
-            return "Xin lỗi, tôi không tìm thấy thông tin liên quan trong dữ liệu hiện có."
+            no_info_msg = "Xin lỗi, tôi không tìm thấy thông tin liên quan trong dữ liệu hiện có."
+            if user_lang != "vi":
+                no_info_msg = convert_language(no_info_msg, user_lang)
+            return no_info_msg
 
-        # Xây dựng context
+        # ================================
+        # 6️⃣ XÂY DỰNG CONTEXT VÀ MESSAGES
+        # ================================
         context = build_context_from_hits(hits, max_chars=6000)
         
-        # Tạo messages
-        messages = [SystemMessage(content=PDF_READER_SYS)]
+        # Tạo System Prompt với chỉ dẫn ngôn ngữ rõ ràng
+        system_prompt_with_lang = PDF_READER_SYS + f"\n\n🌍 QUAN TRỌNG: Người dùng đang sử dụng ngôn ngữ '{user_lang}'. Bạn PHẢI trả lời bằng ngôn ngữ '{user_lang}'."
+        
+        messages = [SystemMessage(content=system_prompt_with_lang)]
+        
+        # Thêm lịch sử (giới hạn 10 tin nhắn gần nhất)
         if history:
-            messages.extend(history[-10:]) 
+            messages.extend(history[-10:])
 
+        # Tạo user message với context
         user_message = f"""Câu hỏi: {clean_question}
 
 Nội dung liên quan từ tài liệu:
 {context}
 
-Hãy trả lời dựa trên các nội dung trên."""
+Hãy trả lời dựa trên các nội dung trên bằng ngôn ngữ '{user_lang}'."""
         
-        messages.append(HumanMessage(content=user_message))
+        messages.append(
+            HumanMessage(
+                content=user_message,
+                additional_kwargs={"user_lang": user_lang}
+            )
+        )
         
-        # Gọi LLM
+        # ================================
+        # 7️⃣ GỌI LLM VÀ DỊCH NẾU CẦN
+        # ================================
         response = llm.invoke(messages).content
+
+        # Kiểm tra lại ngôn ngữ response và dịch nếu cần
+        # (Đôi khi LLM vẫn trả lời sai ngôn ngữ dù đã prompt rõ)
+        if user_lang != "vi":
+            try:
+                response_lang = detect(response)
+                
+                if response_lang != user_lang:
+                    response = convert_language(response, user_lang)
+            except:
+                # Nếu không detect được, dịch luôn để chắc chắn
+                response = convert_language(response, user_lang)
+
         return response
 
     except Exception as e:
         print(f"❌ Lỗi: {e}")
-        return f"Xin lỗi, tôi gặp lỗi khi xử lý câu hỏi: {str(e)}"
+        error_msg = f"Xin lỗi, tôi gặp lỗi khi xử lý câu hỏi: {str(e)}"
+        if user_lang != "vi":
+            error_msg = convert_language(error_msg, user_lang)
+        return error_msg
+
 
 # ===================== MAIN CHATBOT =====================
 pdf_chain = RunnableLambda(process_pdf_question)
