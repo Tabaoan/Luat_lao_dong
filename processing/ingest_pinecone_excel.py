@@ -87,8 +87,8 @@ def load_and_chunk_excel(file_path: str) -> List[Document]:
 
         # Chunk nội dung
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=400,
-            chunk_overlap=100,
+            chunk_size= 3000,
+            chunk_overlap= 300,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
         chunks = splitter.split_documents(docs)

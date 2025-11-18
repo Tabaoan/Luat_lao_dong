@@ -21,7 +21,7 @@ PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
 EMBEDDING_DIM = 3072  
-PDF_FOLDER = r"C:\Users\tabao\OneDrive\Desktop\cong_viec_lam\data\Nghị định  5.11.2025"  
+PDF_FOLDER = r"C:\Users\tabao\OneDrive\Desktop\cong_viec_lam\temp_data\Nghị định  5.11.2025\Nghị định  5.11.2025"
 BATCH_SIZE = 30  
 
 # ===================== KHỞI TẠO =====================
@@ -75,7 +75,7 @@ def get_existing_sources_from_index(index_name: str) -> set:
         dummy_query = [0.0] * EMBEDDING_DIM
         results = index.query(
             vector=dummy_query, 
-            top_k=10000,  # Lấy nhiều để đảm bảo có tất cả sources
+            top_k=10,  # Lấy nhiều để đảm bảo có tất cả sources
             include_metadata=True
         )
         
@@ -135,8 +135,8 @@ def load_and_chunk_pdf(file_path: str) -> List:
         
         # Chunk documents
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=400,  
-            chunk_overlap=100,
+            chunk_size=3000,  
+            chunk_overlap=300,
             separators=["\n\n", "\n", ". ", " ", ""]
         )
         split_docs = splitter.split_documents(docs)
